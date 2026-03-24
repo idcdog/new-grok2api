@@ -96,13 +96,14 @@ class ImageEditService:
                 file_attachments = await self._upload_images(images, current_token)
                 tool_overrides: Dict[str, Any] | None = None
                 request_overrides = self._build_request_overrides(n)
+                request_overrides["modeId"] = "auto"
 
                 if stream:
                     response = await GrokChatService().chat(
                         token=current_token,
                         message=prompt,
-                        model=_EDIT_UPSTREAM_MODEL,
-                        mode=_EDIT_UPSTREAM_MODE,
+                        model=None,
+                        mode=None,
                         stream=True,
                         file_attachments=file_attachments,
                         tool_overrides=tool_overrides,
@@ -203,15 +204,17 @@ class ImageEditService:
         calls_needed = max(1, (n + per_call - 1) // per_call)
 
         async def _call_edit():
+            edit_overrides = self._build_request_overrides(per_call)
+            edit_overrides["modeId"] = "auto"
             response = await GrokChatService().chat(
                 token=token,
                 message=prompt,
-                model=_EDIT_UPSTREAM_MODEL,
-                mode=_EDIT_UPSTREAM_MODE,
+                model=None,
+                mode=None,
                 stream=True,
                 file_attachments=file_attachments,
                 tool_overrides=tool_overrides,
-                request_overrides=self._build_request_overrides(per_call),
+                request_overrides=edit_overrides,
             )
             processor = ImageCollectProcessor(
                 "grok-imagine-1.0-edit", token, response_format=response_format
