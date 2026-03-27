@@ -1,0 +1,7 @@
+{
+  "base_url": "https://your-grok-gateway.example.com",
+  "api_key": "replace_me",
+  "image_endpoint": "/v1/images/generations",
+  "model": "grok-imagine-1.0",
+  "timeout_seconds": 120
+}
