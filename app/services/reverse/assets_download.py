@@ -34,6 +34,19 @@ _CONTENT_TYPES = {
 }
 
 
+def _truncate_text(value: Any, limit: int = 240) -> str:
+    """Return a compact string for logs."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = str(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...(truncated)"
+
+
 class AssetsDownloadReverse:
     """assets.grok.com/{path} reverse interface."""
 
@@ -107,13 +120,42 @@ class AssetsDownloadReverse:
                 )
 
                 if response.status_code != 200:
+                    response_headers = getattr(response, "headers", {}) or {}
+                    try:
+                        body_preview = _truncate_text(getattr(response, "text", ""))
+                    except Exception as preview_error:
+                        body_preview = f"<unavailable:{type(preview_error).__name__}>"
                     logger.error(
                         f"AssetsDownloadReverse: Download failed, {response.status_code}",
-                        extra={"error_type": "UpstreamException"},
+                        extra={
+                            "error_type": "UpstreamException",
+                            "request_url": url,
+                            "request_path": request_path,
+                            "origin": origin,
+                            "referer": referer,
+                            "upstream_host": urlparse(url).netloc,
+                            "proxy_key": active_proxy_key or "",
+                            "using_proxy": bool(proxy_url),
+                            "response_content_type": response_headers.get("content-type", ""),
+                            "response_server": response_headers.get("server", ""),
+                            "response_cf_ray": response_headers.get("cf-ray", ""),
+                            "response_location": response_headers.get("location", ""),
+                            "response_body_preview": body_preview,
+                        },
                     )
                     raise UpstreamException(
                         message=f"AssetsDownloadReverse: Download failed, {response.status_code}",
-                        details={"status": response.status_code},
+                        details={
+                            "status": response.status_code,
+                            "request_url": url,
+                            "request_path": request_path,
+                            "upstream_host": urlparse(url).netloc,
+                            "proxy_key": active_proxy_key or "",
+                            "using_proxy": bool(proxy_url),
+                            "response_content_type": response_headers.get("content-type", ""),
+                            "response_location": response_headers.get("location", ""),
+                            "response_body_preview": body_preview,
+                        },
                     )
 
                 return response

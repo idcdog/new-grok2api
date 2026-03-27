@@ -23,6 +23,13 @@ from app.services.reverse.utils.session import ResettableSession
 from app.services.grok.utils.locks import _get_download_semaphore, _file_lock
 
 
+def _compact_path(value: str, limit: int = 240) -> str:
+    """Compress long URL/path values for logs."""
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}...(truncated)"
+
+
 class DownloadService:
     """Assets download service."""
 
@@ -119,12 +126,25 @@ class DownloadService:
 
     async def parse_b64(self, file_path: str, token: str, media_type: str = "image") -> str:
         """Download and return data URI."""
+        original_file_path = file_path
+        normalized_file_path = ""
         try:
             if not isinstance(file_path, str) or not file_path.strip():
                 raise AppException("Invalid file path", code="invalid_file_path")
             if file_path.startswith("data:"):
                 raise AppException("Invalid file path", code="invalid_file_path")
+            input_parsed = urlparse(file_path.strip())
+            if input_parsed.scheme and input_parsed.netloc and input_parsed.netloc != "assets.grok.com":
+                logger.warning(
+                    "parse_b64 received non-assets host; normalization will drop host information",
+                    extra={
+                        "original_file_path": _compact_path(file_path),
+                        "original_host": input_parsed.netloc,
+                        "media_type": media_type,
+                    },
+                )
             file_path = self._normalize_path(file_path)
+            normalized_file_path = file_path
             lock_name = f"dl_b64_{hashlib.sha1(file_path.encode()).hexdigest()[:16]}"
             lock_timeout = max(1, int(get_config("asset.download_timeout")))
             async with _get_download_semaphore():
@@ -150,7 +170,17 @@ class DownloadService:
 
             return data_uri
         except Exception as e:
-            logger.error(f"Failed to convert {file_path} to base64: {e}")
+            parsed_original = urlparse(original_file_path.strip()) if isinstance(original_file_path, str) and original_file_path.strip() else None
+            logger.error(
+                f"Failed to convert {file_path} to base64: {e}",
+                extra={
+                    "error_type": type(e).__name__,
+                    "original_file_path": _compact_path(original_file_path) if isinstance(original_file_path, str) else "",
+                    "normalized_file_path": _compact_path(normalized_file_path) if normalized_file_path else "",
+                    "original_host": parsed_original.netloc if parsed_original else "",
+                    "media_type": media_type,
+                },
+            )
             raise
 
     def _normalize_path(self, file_path: str) -> str:

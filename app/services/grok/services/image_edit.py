@@ -9,6 +9,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import AsyncGenerator, AsyncIterable, Dict, List, Tuple, Union, Any
+from urllib.parse import urlparse
 
 import orjson
 from curl_cffi.requests.errors import RequestsError
@@ -37,6 +38,13 @@ from app.services.token import EffortType
 
 _EDIT_UPSTREAM_MODEL = "grok-4"
 _EDIT_UPSTREAM_MODE = "MODEL_MODE_AUTO"
+
+
+def _compact_image_url(url: str, limit: int = 240) -> str:
+    """Compress URL for logs while keeping host and path visible."""
+    if len(url) <= limit:
+        return url
+    return f"{url[:limit]}...(truncated)"
 
 
 @dataclass
@@ -350,9 +358,11 @@ class ImageStreamProcessor(BaseProcessor):
                         jd = orjson.loads(ca.get("jsonData", b"{}"))
                         card_type = jd.get("type", "")
                         url = None
+                        progress = None
                         if card_type in ("render_generated_image", "render_edited_image"):
                             chunk = jd.get("image_chunk", {})
-                            if chunk.get("progress", 0) >= 100 and chunk.get("imageUrl"):
+                            progress = chunk.get("progress", 0)
+                            if progress >= 100 and chunk.get("imageUrl"):
                                 url = f"https://assets.grok.com/{chunk['imageUrl']}"
                         elif card_type == "render_searched_image":
                             img = jd.get("image", {})
@@ -372,12 +382,33 @@ class ImageStreamProcessor(BaseProcessor):
                                             b64 = base64_data.split(",", 1)[1] if "," in base64_data else base64_data
                                             final_images.append(b64)
                                     except Exception as e:
-                                        logger.warning(f"Failed to convert stream card image to base64: {e}")
+                                        parsed_url = urlparse(url)
+                                        logger.warning(
+                                            f"Failed to convert stream card image to base64: {e}",
+                                            extra={
+                                                "error_type": type(e).__name__,
+                                                "card_type": card_type,
+                                                "card_progress": progress,
+                                                "image_url": _compact_image_url(url),
+                                                "image_host": parsed_url.netloc,
+                                                "response_format": self.response_format,
+                                                "chat_format": self.chat_format,
+                                            },
+                                        )
                                         processed = await self.process_url(url, "image")
                                         if processed:
                                             final_images.append(processed)
-                    except Exception:
-                        pass
+                    except Exception as card_err:
+                        logger.warning(
+                            f"stream cardAttachment processing error: {card_err}",
+                            extra={
+                                "error_type": type(card_err).__name__,
+                                "card_attachment_type": ca.get("cardType", ""),
+                                "json_data_preview": _compact_image_url(
+                                    ca.get("jsonData", "") if isinstance(ca.get("jsonData", ""), str) else str(ca.get("jsonData", ""))
+                                ),
+                            },
+                        )
 
                 # modelResponse (legacy format)
                 if mr := resp.get("modelResponse"):
@@ -400,8 +431,16 @@ class ImageStreamProcessor(BaseProcessor):
                                         b64 = base64_data
                                     final_images.append(b64)
                             except Exception as e:
+                                parsed_url = urlparse(url)
                                 logger.warning(
-                                    f"Failed to convert image to base64, falling back to URL: {e}"
+                                    f"Failed to convert image to base64, falling back to URL: {e}",
+                                    extra={
+                                        "error_type": type(e).__name__,
+                                        "image_url": _compact_image_url(url),
+                                        "image_host": parsed_url.netloc,
+                                        "response_format": self.response_format,
+                                        "chat_format": self.chat_format,
+                                    },
                                 )
                                 processed = await self.process_url(url, "image")
                                 if processed:
@@ -544,9 +583,11 @@ class ImageCollectProcessor(BaseProcessor):
                         jd = orjson.loads(ca.get("jsonData", b"{}"))
                         card_type = jd.get("type", "")
                         url = None
+                        progress = None
                         if card_type in ("render_generated_image", "render_edited_image"):
                             chunk = jd.get("image_chunk", {})
-                            if chunk.get("progress", 0) >= 100 and chunk.get("imageUrl"):
+                            progress = chunk.get("progress", 0)
+                            if progress >= 100 and chunk.get("imageUrl"):
                                 url = f"https://assets.grok.com/{chunk['imageUrl']}"
                         elif card_type == "render_searched_image":
                             img = jd.get("image", {})
@@ -566,12 +607,32 @@ class ImageCollectProcessor(BaseProcessor):
                                             b64 = base64_data.split(",", 1)[1] if "," in base64_data else base64_data
                                             images.append(b64)
                                     except Exception as e:
-                                        logger.warning(f"Failed to convert card image to base64: {e}")
+                                        parsed_url = urlparse(url)
+                                        logger.warning(
+                                            f"Failed to convert card image to base64: {e}",
+                                            extra={
+                                                "error_type": type(e).__name__,
+                                                "card_type": card_type,
+                                                "card_progress": progress,
+                                                "image_url": _compact_image_url(url),
+                                                "image_host": parsed_url.netloc,
+                                                "response_format": self.response_format,
+                                            },
+                                        )
                                         processed = await self.process_url(url, "image")
                                         if processed:
                                             images.append(processed)
                     except Exception as card_err:
-                        logger.warning(f"cardAttachment processing error: {card_err}")
+                        logger.warning(
+                            f"cardAttachment processing error: {card_err}",
+                            extra={
+                                "error_type": type(card_err).__name__,
+                                "card_attachment_type": ca.get("cardType", ""),
+                                "json_data_preview": _compact_image_url(
+                                    ca.get("jsonData", "") if isinstance(ca.get("jsonData", ""), str) else str(ca.get("jsonData", ""))
+                                ),
+                            },
+                        )
 
                 if mr := resp.get("modelResponse"):
                     if urls := _collect_images(mr):
@@ -593,8 +654,15 @@ class ImageCollectProcessor(BaseProcessor):
                                         b64 = base64_data
                                     images.append(b64)
                             except Exception as e:
+                                parsed_url = urlparse(url)
                                 logger.warning(
-                                    f"Failed to convert image to base64, falling back to URL: {e}"
+                                    f"Failed to convert image to base64, falling back to URL: {e}",
+                                    extra={
+                                        "error_type": type(e).__name__,
+                                        "image_url": _compact_image_url(url),
+                                        "image_host": parsed_url.netloc,
+                                        "response_format": self.response_format,
+                                    },
                                 )
                                 processed = await self.process_url(url, "image")
                                 if processed:
