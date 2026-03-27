@@ -1,2 +1,3 @@
 config/local.json
+output/
 scripts/__pycache__/

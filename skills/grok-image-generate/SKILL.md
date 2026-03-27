@@ -1,11 +1,11 @@
 ---
 name: grok-image-generate
-description: Use this skill when the user wants to generate images through a configured Grok-compatible image API, including prompt-to-image requests, returning image URLs or base64 data, and validating Grok URL and API key based configuration.
+description: Use this skill when the user wants to generate images through this project's Web Imagine endpoint, save the generated images to a local directory, and use the configured Grok base URL plus function key for access.
 ---
 
 # Grok Image Generate
 
-Use this skill for prompt-to-image generation through a configured Grok-compatible API.
+Use this skill for prompt-to-image generation through this project's Web Imagine SSE endpoint and save the returned images to local files.
 
 ## Files
 
@@ -23,43 +23,45 @@ The script resolves configuration in this order:
 Required values:
 
 - `GROK_BASE_URL` or `base_url`
-- `GROK_API_KEY` or `api_key`
+- `GROK_FUNCTION_KEY`, `GROK_API_KEY`, `function_key`, or `api_key`
 
 Optional values:
 
-- `GROK_IMAGE_MODEL` or `model`
 - `GROK_IMAGE_ENDPOINT` or `image_endpoint`
 - `GROK_TIMEOUT_SECONDS` or `timeout_seconds`
+- `GROK_OUTPUT_DIR` or `output_dir`
 
 Default optional values:
 
-- `model = grok-imagine-1.0`
-- `image_endpoint = /v1/images/generations`
+- `image_endpoint = /v1/function/imagine/sse`
 - `timeout_seconds = 120`
+- `output_dir = <skill-dir>/output`
 
 Do not write secrets into `SKILL.md` or checked-in source files.
 
 ## Workflow
 
-1. Confirm the user wants image generation.
-2. Collect explicit inputs: `prompt`, `n`, `size`, `response_format`.
+1. Confirm the user wants image generation through the same backend path as the Web Imagine page.
+2. Collect explicit inputs: `prompt`, optional `aspect_ratio` or `size`, optional image count, and optional output directory.
 3. Run `python scripts/generate_image.py` with those parameters.
-4. Return the generated image result in the format requested by the user.
-5. If the API fails, report the HTTP status code and a short response preview.
+4. The script must call `GET /v1/function/imagine/sse` with query parameters.
+5. Read SSE events until enough `b64_json` image payloads are received.
+6. Save the decoded files locally and return the saved file paths.
+7. If the API fails, report the HTTP status code and a short response preview.
 
 ## Validation
 
 Before calling the script:
 
 - prompt must be non-empty
-- `n` must be a positive integer
-- `response_format` must be one of `url`, `b64_json`, `base64`
-- `size` should look like `1024x1024`
+- `count` must be a positive integer
+- `aspect_ratio` should look like `2:3` when provided
+- `size` should be one of the project's supported image sizes when provided
 
 ## Output
 
 Prefer concise output:
 
-- image URL list when `response_format=url`
-- base64 payload when explicitly requested
+- saved local file path list
+- output directory
 - clear failure details when upstream returns an error

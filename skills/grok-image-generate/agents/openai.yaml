@@ -1,7 +1,7 @@
 interface:
   display_name: "Grok Image Generate"
-  short_description: "Generate images with a configured Grok API"
-  default_prompt: "Use $grok-image-generate to generate an image with the configured Grok image API."
+  short_description: "Generate and save images via Web Imagine"
+  default_prompt: "Use $grok-image-generate to generate an image through the Web Imagine endpoint and save it locally."
 
 policy:
   allow_implicit_invocation: true
